@@ -1,0 +1,315 @@
+-- JPxxcScripts - Blade Ball Script
+-- Loadstring compatível
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+-- Variáveis de configuração
+local scriptEnabled = false
+local autoParry = false
+local showBallTrajectory = false
+local ballSpeed = 16
+
+-- Criar GUI
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "JPxxcScripts"
+screenGui.Parent = playerGui
+screenGui.ResetOnSpawn = false
+
+-- Frame principal
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "MainFrame"
+mainFrame.Size = UDim2.new(0, 400, 0, 500)
+mainFrame.Position = UDim2.new(0.5, -200, 0.5, -250)
+mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+mainFrame.BorderSizePixel = 0
+mainFrame.Active = true
+mainFrame.Draggable = true
+mainFrame.Parent = screenGui
+
+-- Bordas arredondadas
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, 12)
+corner.Parent = mainFrame
+
+-- Gradiente de fundo
+local gradient = Instance.new("UIGradient")
+gradient.Color = ColorSequence.new{
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(45, 45, 60)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(25, 25, 35))
+}
+gradient.Rotation = 45
+gradient.Parent = mainFrame
+
+-- Header
+local header = Instance.new("Frame")
+header.Name = "Header"
+header.Size = UDim2.new(1, 0, 0, 60)
+header.Position = UDim2.new(0, 0, 0, 0)
+header.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
+header.BorderSizePixel = 0
+header.Parent = mainFrame
+
+local headerCorner = Instance.new("UICorner")
+headerCorner.CornerRadius = UDim.new(0, 12)
+headerCorner.Parent = header
+
+-- Título
+local title = Instance.new("TextLabel")
+title.Name = "Title"
+title.Size = UDim2.new(1, -120, 1, 0)
+title.Position = UDim2.new(0, 20, 0, 0)
+title.BackgroundTransparency = 1
+title.Text = "JPxxcScripts - Blade Ball"
+title.TextColor3 = Color3.fromRGB(255, 255, 255)
+title.TextScaled = true
+title.Font = Enum.Font.GothamBold
+title.Parent = header
+
+-- Botão de fechar
+local closeButton = Instance.new("TextButton")
+closeButton.Name = "CloseButton"
+closeButton.Size = UDim2.new(0, 40, 0, 40)
+closeButton.Position = UDim2.new(1, -50, 0, 10)
+closeButton.BackgroundColor3 = Color3.fromRGB(255, 85, 85)
+closeButton.BorderSizePixel = 0
+closeButton.Text = "X"
+closeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+closeButton.TextScaled = true
+closeButton.Font = Enum.Font.GothamBold
+closeButton.Parent = header
+
+local closeCorner = Instance.new("UICorner")
+closeCorner.CornerRadius = UDim.new(0, 8)
+closeCorner.Parent = closeButton
+
+-- Container de conteúdo
+local content = Instance.new("ScrollingFrame")
+content.Name = "Content"
+content.Size = UDim2.new(1, -20, 1, -80)
+content.Position = UDim2.new(0, 10, 0, 70)
+content.BackgroundTransparency = 1
+content.BorderSizePixel = 0
+content.ScrollBarThickness = 6
+content.ScrollBarImageColor3 = Color3.fromRGB(100, 100, 120)
+content.CanvasSize = UDim2.new(0, 0, 0, 600)
+content.Parent = mainFrame
+
+-- Layout para o conteúdo
+local layout = Instance.new("UIListLayout")
+layout.SortOrder = Enum.SortOrder.LayoutOrder
+layout.Padding = UDim.new(0, 10)
+layout.Parent = content
+
+-- Função para criar botões
+local function createButton(name, text, callback)
+    local button = Instance.new("TextButton")
+    button.Name = name
+    button.Size = UDim2.new(1, -20, 0, 50)
+    button.BackgroundColor3 = Color3.fromRGB(70, 130, 255)
+    button.BorderSizePixel = 0
+    button.Text = text
+    button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    button.TextScaled = true
+    button.Font = Enum.Font.Gotham
+    button.Parent = content
+    
+    local buttonCorner = Instance.new("UICorner")
+    buttonCorner.CornerRadius = UDim.new(0, 8)
+    buttonCorner.Parent = button
+    
+    -- Animação de hover
+    button.MouseEnter:Connect(function()
+        TweenService:Create(button, TweenInfo.new(0.2), {
+            BackgroundColor3 = Color3.fromRGB(90, 150, 255)
+        }):Play()
+    end)
+    
+    button.MouseLeave:Connect(function()
+        TweenService:Create(button, TweenInfo.new(0.2), {
+            BackgroundColor3 = Color3.fromRGB(70, 130, 255)
+        }):Play()
+    end)
+    
+    if callback then
+        button.MouseButton1Click:Connect(callback)
+    end
+    
+    return button
+end
+
+-- Função para criar toggle
+local function createToggle(name, text, defaultValue, callback)
+    local frame = Instance.new("Frame")
+    frame.Name = name .. "Frame"
+    frame.Size = UDim2.new(1, -20, 0, 50)
+    frame.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+    frame.BorderSizePixel = 0
+    frame.Parent = content
+    
+    local frameCorner = Instance.new("UICorner")
+    frameCorner.CornerRadius = UDim.new(0, 8)
+    frameCorner.Parent = frame
+    
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, -80, 1, 0)
+    label.Position = UDim2.new(0, 10, 0, 0)
+    label.BackgroundTransparency = 1
+    label.Text = text
+    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.TextScaled = true
+    label.Font = Enum.Font.Gotham
+    label.Parent = frame
+    
+    local toggle = Instance.new("TextButton")
+    toggle.Name = name
+    toggle.Size = UDim2.new(0, 60, 0, 30)
+    toggle.Position = UDim2.new(1, -70, 0.5, -15)
+    toggle.BackgroundColor3 = defaultValue and Color3.fromRGB(85, 255, 85) or Color3.fromRGB(255, 85, 85)
+    toggle.BorderSizePixel = 0
+    toggle.Text = defaultValue and "ON" or "OFF"
+    toggle.TextColor3 = Color3.fromRGB(255, 255, 255)
+    toggle.TextScaled = true
+    toggle.Font = Enum.Font.GothamBold
+    toggle.Parent = frame
+    
+    local toggleCorner = Instance.new("UICorner")
+    toggleCorner.CornerRadius = UDim.new(0, 15)
+    toggleCorner.Parent = toggle
+    
+    local isEnabled = defaultValue
+    
+    toggle.MouseButton1Click:Connect(function()
+        isEnabled = not isEnabled
+        toggle.Text = isEnabled and "ON" or "OFF"
+        TweenService:Create(toggle, TweenInfo.new(0.2), {
+            BackgroundColor3 = isEnabled and Color3.fromRGB(85, 255, 85) or Color3.fromRGB(255, 85, 85)
+        }):Play()
+        
+        if callback then
+            callback(isEnabled)
+        end
+    end)
+    
+    return toggle
+end
+
+-- Criar controles
+createToggle("AutoParry", "Auto Parry", false, function(enabled)
+    autoParry = enabled
+end)
+
+createToggle("BallTrajectory", "Show Ball Trajectory", false, function(enabled)
+    showBallTrajectory = enabled
+end)
+
+createButton("SpeedButton", "Increase Ball Speed", function()
+    ballSpeed = ballSpeed + 2
+    print("Ball speed increased to:", ballSpeed)
+end)
+
+createButton("TeleportButton", "Teleport to Ball", function()
+    local ball = workspace:FindFirstChild("Ball")
+    if ball and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+        player.Character.HumanoidRootPart.CFrame = ball.CFrame + Vector3.new(0, 5, 0)
+    end
+end)
+
+-- Seção de informações
+local infoFrame = Instance.new("Frame")
+infoFrame.Name = "InfoFrame"
+infoFrame.Size = UDim2.new(1, -20, 0, 100)
+infoFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+infoFrame.BorderSizePixel = 0
+infoFrame.Parent = content
+
+local infoCorner = Instance.new("UICorner")
+infoCorner.CornerRadius = UDim.new(0, 8)
+infoCorner.Parent = infoFrame
+
+local infoText = Instance.new("TextLabel")
+infoText.Size = UDim2.new(1, -20, 1, -20)
+infoText.Position = UDim2.new(0, 10, 0, 10)
+infoText.BackgroundTransparency = 1
+infoText.Text = "Status: Ready\nBall Speed: " .. ballSpeed .. "\nAuto Parry: OFF"
+infoText.TextColor3 = Color3.fromRGB(200, 200, 200)
+infoText.TextXAlignment = Enum.TextXAlignment.Left
+infoText.TextYAlignment = Enum.TextYAlignment.Top
+infoText.TextScaled = true
+infoText.Font = Enum.Font.Gotham
+infoText.Parent = infoFrame
+
+-- Funções principais
+local function getBall()
+    return workspace:FindFirstChild("Ball") or workspace:FindFirstChild("Football")
+end
+
+local function autoParryFunction()
+    if not autoParry then return end
+    
+    local ball = getBall()
+    if not ball then return end
+    
+    local character = player.Character
+    if not character then return end
+    
+    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+    if not humanoidRootPart then return end
+    
+    local distance = (ball.Position - humanoidRootPart.Position).Magnitude
+    
+    if distance < 15 then
+        -- Simular parry
+        local args = {
+            [1] = 0.5,
+            [2] = CFrame.new(ball.Position),
+            [3] = {
+                [1] = ball.Position + ball.Velocity.Unit * 50,
+                [2] = ball
+            },
+            [4] = {
+                [1] = ball.Position.X,
+                [2] = ball.Position.Y
+            }
+        }
+        
+        game:GetService("ReplicatedStorage").Remotes.ParryAttempt:FireServer(unpack(args))
+    end
+end
+
+-- Função de fechamento
+closeButton.MouseButton1Click:Connect(function()
+    screenGui:Destroy()
+end)
+
+-- Animação de entrada
+mainFrame.Size = UDim2.new(0, 0, 0, 0)
+TweenService:Create(mainFrame, TweenInfo.new(0.5, Enum.EasingStyle.Back), {
+    Size = UDim2.new(0, 400, 0, 500)
+}):Play()
+
+-- Loop principal
+RunService.Heartbeat:Connect(function()
+    autoParryFunction()
+    
+    -- Atualizar informações
+    local ball = getBall()
+    local status = ball and "Ball Found" or "Waiting for Ball"
+    infoText.Text = "Status: " .. status .. "\nBall Speed: " .. ballSpeed .. "\nAuto Parry: " .. (autoParry and "ON" or "OFF")
+end)
+
+-- Minimizar com tecla
+UserInputService.InputBegan:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.RightControl then
+        mainFrame.Visible = not mainFrame.Visible
+    end
+end)
+
+print("JPxxcScripts loaded successfully!")
+print("Press Right Control to toggle GUI visibility")
