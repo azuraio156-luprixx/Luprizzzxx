@@ -1,0 +1,207 @@
+-- Fisch Hub Ultra x9000 | Speed X Style + Anti-Ban
+loadstring([[
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local UIS = game:GetService("UserInputService")
+local CoreGui = game:GetService("CoreGui")
+local Random = Random.new()
+
+-- =========================
+-- Biblioteca UI (FluxLib)
+-- =========================
+local success, Library = pcall(function()
+    return loadstring(game:HttpGet("https://raw.githubusercontent.com/bloodball/UI-Libs/main/FluxLib.lua"))()
+end)
+if not success then
+    warn("Falha ao carregar biblioteca UI")
+    return
+end
+local Window = Library:CreateWindow("Fisch Hub | x9000 Ultra Speed X + Anti-Ban")
+
+-- =========================
+-- Configurações Globais
+-- =========================
+local autoFuncs = {}
+local settings = {
+    WalkSpeed = 100,
+    JumpPower = 150,
+    AutoCollectDelayMin = 0.3,
+    AutoCollectDelayMax = 0.7,
+    AntiBanDelayMin = 1.2,
+    AntiBanDelayMax = 3.5
+}
+
+-- =========================
+-- Anti-AFK & Anti-Ban
+-- =========================
+spawn(function()
+    while true do
+        pcall(function()
+            LocalPlayer.Idled:Connect(function()
+                game:GetService("VirtualUser"):ClickButton2(Vector2.new())
+            end)
+            if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                LocalPlayer.Character.HumanoidRootPart.CFrame = LocalPlayer.Character.HumanoidRootPart.CFrame * CFrame.new(Random:NextNumber(-1,1),0,Random:NextNumber(-1,1))
+            end
+        end)
+        wait(Random:NextNumber(settings.AntiBanDelayMin, settings.AntiBanDelayMax))
+    end
+end)
+
+-- =========================
+-- Movement Tab
+-- =========================
+local MovementTab = Window:CreateTab("Movement")
+MovementTab:CreateSlider("WalkSpeed",16,300,function(value)
+    settings.WalkSpeed = value
+    if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+        LocalPlayer.Character.Humanoid.WalkSpeed = settings.WalkSpeed
+    end
+end)
+MovementTab:CreateSlider("JumpPower",50,300,function(value)
+    settings.JumpPower = value
+    if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+        LocalPlayer.Character.Humanoid.JumpPower = settings.JumpPower
+    end
+end)
+MovementTab:CreateToggle("Noclip", nil, function(state)
+    if state then
+        spawn(function()
+            while true do
+                if LocalPlayer.Character then
+                    for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
+                        if part:IsA("BasePart") then part.CanCollide = false end
+                    end
+                end
+                wait(0.1)
+            end
+        end)
+    else
+        if LocalPlayer.Character then
+            for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
+                if part:IsA("BasePart") then part.CanCollide = true end
+            end
+        end
+    end
+end)
+MovementTab:CreateToggle("Fly", nil, function(state)
+    local flying
+    if state then
+        flying = true
+        spawn(function()
+            while flying do
+                if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                    LocalPlayer.Character.HumanoidRootPart.CFrame = LocalPlayer.Character.HumanoidRootPart.CFrame + Vector3.new(0,0.1,0)
+                end
+                wait(0.05)
+            end
+        end)
+    else
+        flying = false
+    end
+end)
+
+-- =========================
+-- Automation Tab
+-- =========================
+local AutoTab = Window:CreateTab("Automation")
+autoFuncs.AutoTeleport = false
+local islands = {"Island1","Island2","Island3"}
+local function teleportLoop()
+    while autoFuncs.AutoTeleport do
+        for _, islName in pairs(islands) do
+            local isl = Workspace:FindFirstChild(islName)
+            if isl and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                LocalPlayer.Character.HumanoidRootPart.CFrame = isl.CFrame + Vector3.new(0,5,0)
+                wait(Random:NextNumber(1,2))
+            end
+        end
+    end
+end
+AutoTab:CreateToggle("Auto Teleport Islands", nil, function(state)
+    autoFuncs.AutoTeleport = state
+    if state then spawn(teleportLoop) end
+end)
+
+autoFuncs.AutoQuest = false
+local function autoQuestLoop()
+    while autoFuncs.AutoQuest do
+        for _, item in pairs(Workspace:GetDescendants()) do
+            if item.Name == "FishingRod" and item:IsA("Tool") then
+                LocalPlayer.Character.HumanoidRootPart.CFrame = item.Handle.CFrame
+                wait(Random:NextNumber(0.3,0.6))
+            end
+        end
+        wait(Random:NextNumber(0.5,1))
+    end
+end
+AutoTab:CreateToggle("Auto Quest Rod", nil, function(state)
+    autoFuncs.AutoQuest = state
+    if state then spawn(autoQuestLoop) end
+end)
+
+autoFuncs.AutoShake = false
+local function autoShakeLoop()
+    while autoFuncs.AutoShake do
+        -- placeholder shake
+        wait(Random:NextNumber(0.4,0.7))
+    end
+end
+AutoTab:CreateToggle("Auto Shake", nil, function(state)
+    autoFuncs.AutoShake = state
+    if state then spawn(autoShakeLoop) end
+end)
+
+autoFuncs.AutoReel = false
+local function autoReelLoop()
+    while autoFuncs.AutoReel do
+        -- placeholder reel
+        wait(Random:NextNumber(0.4,0.7))
+    end
+end
+AutoTab:CreateToggle("Auto Reel", nil, function(state)
+    autoFuncs.AutoReel = state
+    if state then spawn(autoReelLoop) end
+end)
+
+autoFuncs.AutoCollect = false
+local function autoCollectLoop()
+    while autoFuncs.AutoCollect do
+        for _, item in pairs(Workspace:GetDescendants()) do
+            if item.Name == "Fisch" and item:IsA("Part") then
+                LocalPlayer.Character.HumanoidRootPart.CFrame = item.CFrame
+                wait(Random:NextNumber(settings.AutoCollectDelayMin,settings.AutoCollectDelayMax))
+            end
+        end
+        wait(Random:NextNumber(0.5,1))
+    end
+end
+AutoTab:CreateToggle("Auto Collect Fisch", nil, function(state)
+    autoFuncs.AutoCollect = state
+    if state then spawn(autoCollectLoop) end
+end)
+
+-- =========================
+-- ESP Tab
+-- =========================
+local ESPTab = Window:CreateTab("ESP")
+local espObjects = {}
+local function createESP(obj)
+    if espObjects[obj] then return end
+    local highlight = Instance.new("Highlight")
+    highlight.Parent = CoreGui
+    highlight.Adornee = obj
+    highlight.FillColor = Color3.fromRGB(255,0,0)
+    highlight.OutlineColor = Color3.fromRGB(0,0,0)
+    espObjects[obj] = highlight
+end
+local function updateESP()
+    for _, item in pairs(Workspace:GetDescendants()) do
+        if item.Name == "Fisch" and item:IsA("Part") then createESP(item) end
+    end
+end
+ESPTab:CreateButton("Update ESP", updateESP)
+]])()
