@@ -1,0 +1,140 @@
+-- JP Admin Hub (c/ ~50 comandos principais do Infinite Yield embutidos)
+
+local ScreenGui = Instance.new("ScreenGui")
+local MainFrame = Instance.new("Frame")
+local ToggleButton = Instance.new("TextButton")
+local ScrollingFrame = Instance.new("ScrollingFrame")
+local UIListLayout = Instance.new("UIListLayout")
+
+ScreenGui.Parent = game.CoreGui
+ScreenGui.Name = "JP_AdminHub"
+
+-- Botão abrir/fechar
+ToggleButton.Parent = ScreenGui
+ToggleButton.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+ToggleButton.Text = "Abrir Admin Hub"
+ToggleButton.Size = UDim2.new(0, 150, 0, 40)
+ToggleButton.Position = UDim2.new(0, 20, 0, 200)
+ToggleButton.TextColor3 = Color3.fromRGB(255,255,255)
+ToggleButton.Font = Enum.Font.GothamBold
+ToggleButton.TextSize = 16
+ToggleButton.Draggable = true
+
+-- Painel
+MainFrame.Parent = ScreenGui
+MainFrame.BackgroundColor3 = Color3.fromRGB(40,40,40)
+MainFrame.Size = UDim2.new(0, 300, 0, 350)
+MainFrame.Position = UDim2.new(0, 200, 0, 100)
+MainFrame.Visible = false
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.ClipsDescendants = true
+
+-- Scroll
+ScrollingFrame.Parent = MainFrame
+ScrollingFrame.Size = UDim2.new(1, 0, 1, 0)
+ScrollingFrame.CanvasSize = UDim2.new(0, 0, 80, 0)
+ScrollingFrame.ScrollBarThickness = 6
+ScrollingFrame.BackgroundTransparency = 1
+
+UIListLayout.Parent = ScrollingFrame
+UIListLayout.Padding = UDim.new(0, 4)
+
+-- Criar botões
+local function CreateCommand(name, func)
+    local btn = Instance.new("TextButton")
+    btn.Parent = ScrollingFrame
+    btn.Size = UDim2.new(1, -10, 0, 30)
+    btn.BackgroundColor3 = Color3.fromRGB(60,60,60)
+    btn.Text = name
+    btn.TextColor3 = Color3.fromRGB(255,255,255)
+    btn.Font = Enum.Font.Gotham
+    btn.TextSize = 14
+    btn.MouseButton1Click:Connect(func)
+end
+
+-- Abrir/Fechar hub
+local aberto = false
+ToggleButton.MouseButton1Click:Connect(function()
+    aberto = not aberto
+    MainFrame.Visible = aberto
+    ToggleButton.Text = aberto and "Fechar Admin Hub" or "Abrir Admin Hub"
+end)
+
+---------------------------------------------------
+-- Carregar Infinite Yield escondido
+---------------------------------------------------
+local IY = loadstring(game:HttpGet("https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source"))()
+pcall(function()
+    if game.CoreGui:FindFirstChild("IY_GUI") then
+        game.CoreGui.IY_GUI.Enabled = false
+    end
+end)
+
+---------------------------------------------------
+-- Botões (c/ ~50 comandos principais do Infinite Yield)
+---------------------------------------------------
+
+-- Movimento
+CreateCommand("Speed 50", function() IY.ExecuteCommand("speed 50") end)
+CreateCommand("Speed 100", function() IY.ExecuteCommand("speed 100") end)
+CreateCommand("Reset Speed", function() IY.ExecuteCommand("speed 16") end)
+
+CreateCommand("Jump 100", function() IY.ExecuteCommand("jump 100") end)
+CreateCommand("Jump 200", function() IY.ExecuteCommand("jump 200") end)
+CreateCommand("Reset Jump", function() IY.ExecuteCommand("jump 50") end)
+
+CreateCommand("Fly", function() IY.ExecuteCommand("fly") end)
+CreateCommand("Unfly", function() IY.ExecuteCommand("unfly") end)
+
+CreateCommand("Noclip", function() IY.ExecuteCommand("noclip") end)
+CreateCommand("Clip", function() IY.ExecuteCommand("clip") end)
+
+-- Jogador
+CreateCommand("Godmode", function() IY.ExecuteCommand("god") end)
+CreateCommand("Ungod", function() IY.ExecuteCommand("ungod") end)
+CreateCommand("Invisible", function() IY.ExecuteCommand("invisible") end)
+CreateCommand("Visible", function() IY.ExecuteCommand("visible") end)
+CreateCommand("Sit", function() IY.ExecuteCommand("sit") end)
+CreateCommand("Respawn", function() IY.ExecuteCommand("respawn") end)
+CreateCommand("Reset", function() IY.ExecuteCommand("reset") end)
+
+-- Troll / Admin
+CreateCommand("Kill All", function() IY.ExecuteCommand("kill all") end)
+CreateCommand("Loop Kill All", function() IY.ExecuteCommand("loopkill all") end)
+CreateCommand("Bring All", function() IY.ExecuteCommand("bring all") end)
+CreateCommand("Kick All", function() IY.ExecuteCommand("kick all") end)
+CreateCommand("Fling All", function() IY.ExecuteCommand("fling all") end)
+CreateCommand("Rocket All", function() IY.ExecuteCommand("rocket all") end)
+CreateCommand("Firework All", function() IY.ExecuteCommand("firework all") end)
+
+-- Teleport
+CreateCommand("TP Me to Baseplate", function() IY.ExecuteCommand("tp me 0 10 0") end)
+CreateCommand("TP All to Me", function() IY.ExecuteCommand("tp all me") end)
+CreateCommand("Goto Random", function() IY.ExecuteCommand("goto random") end)
+CreateCommand("To All", function() IY.ExecuteCommand("to all") end)
+
+-- Visual
+CreateCommand("ESP Players", function() IY.ExecuteCommand("esp") end)
+CreateCommand("UnESP", function() IY.ExecuteCommand("unesp") end)
+CreateCommand("NameESP", function() IY.ExecuteCommand("nameesp") end)
+CreateCommand("Chams", function() IY.ExecuteCommand("chams") end)
+CreateCommand("NoChams", function() IY.ExecuteCommand("unchams") end)
+CreateCommand("Wireframe", function() IY.ExecuteCommand("wireframe") end)
+CreateCommand("UnWireframe", function() IY.ExecuteCommand("unwireframe") end)
+
+-- Diversão
+CreateCommand("Dance", function() IY.ExecuteCommand("dance") end)
+CreateCommand("Dance2", function() IY.ExecuteCommand("dance2") end)
+CreateCommand("Dance3", function() IY.ExecuteCommand("dance3") end)
+CreateCommand("Spin", function() IY.ExecuteCommand("spin") end)
+CreateCommand("Unspin", function() IY.ExecuteCommand("unspin") end)
+CreateCommand("Float", function() IY.ExecuteCommand("float") end)
+CreateCommand("Unfloat", function() IY.ExecuteCommand("unfloat") end)
+
+-- Extra
+CreateCommand("BTools", function() IY.ExecuteCommand("btools") end)
+CreateCommand("Freecam", function() IY.ExecuteCommand("freecam") end)
+CreateCommand("Unfreecam", function() IY.ExecuteCommand("unfreecam") end)
+CreateCommand("Rejoin", function() IY.ExecuteCommand("rejoin") end)
+CreateCommand("Serverhop", function() IY.ExecuteCommand("serverhop") end)
