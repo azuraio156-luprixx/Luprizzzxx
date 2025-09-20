@@ -1,0 +1,495 @@
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+local StarterGui = game:GetService("StarterGui")
+local RunService = game:GetService("RunService")
+local Debris = game:GetService("Debris")
+
+-- =========================================================================
+--                                 CONFIGURAÇÕES
+-- =========================================================================
+local settings = {
+    autoFishEnabled = false,
+    teleportToSpot = true,
+    autoToolClickEnabled = false, -- Se precisar clicar na vara para pescar
+    fishInterval = 1,             -- Tempo entre as tentativas de pesca (em segundos)
+    autoEquipRodEnabled = false,
+    autoSellFishEnabled = false,  -- Requer conhecimento de como vender no jogo
+    antiAFKEnabled = false,
+    debugMode = true,             -- Exibe mensagens de debug
+    notificationDelay = 5,        -- Tempo que a notificação fica na tela
+}
+
+-- =========================================================================
+--                             VARIÁVEIS INTERNAS
+-- =========================================================================
+local currentFishingSpot = nil
+local lastFishAttemptTime = 0
+local toolLoopConnection = nil
+local autoFishThread = nil
+local antiAFKThread = nil
+local lastAFKMove = 0
+local guiElements = {} -- Para guardar referências aos elementos da GUI
+
+-- =========================================================================
+--                                 HELPERS
+-- =========================================================================
+local function log(message)
+    if settings.debugMode then
+        print("[Fisch Script] " .. message)
+    end
+end
+
+local function notify(title, message, duration)
+    StarterGui:SetCore("SendNotification", {
+        Title = title,
+        Text = message,
+        Duration = duration or settings.notificationDelay,
+        -- Adicione ícones para mobile, se desejar e tiver acesso
+        -- Icon = "rbxassetid://SEU_ID_DO_ICONE_AQUI"
+    })
+    log("[NOTIFICAÇÃO] " .. title .. ": " .. message)
+end
+
+-- =========================================================================
+--                             FUNCIONALIDADES DE PESCA (SEM MUDANÇAS AQUI)
+-- =========================================================================
+
+local function findNearestFishSpot()
+    local smallestDistance = math.huge
+    local nearestSpot = nil
+
+    for i, v in pairs(Workspace:GetChildren()) do
+        if v.Name == "FishingSpot" and v:IsA("Model") and v.PrimaryPart then
+            local distance = (LocalPlayer.Character.HumanoidRootPart.Position - v.PrimaryPart.Position).magnitude
+            if distance < smallestDistance then
+                smallestDistance = distance
+                nearestSpot = v
+            end
+        end
+    end
+    return nearestSpot
+end
+
+local function interactWithFishSpot(spot)
+    log("Tentando interagir com o local de pesca: " .. spot.Name)
+    notify("Pesca", "Interagindo com o local de pesca...", 2)
+
+    -- ESTA PARTE É ESPECÍFICA DO JOGO E REQUER ENGENHARIA REVERSA.
+    -- MANTÉM OS EXEMPLOS ORIGINAIS
+    local interactRemote = ReplicatedStorage:FindFirstChild("RemoteEvents")
+    if interactRemote then
+        local specificRemote = interactRemote:FindFirstChild("InteractFishingSpot") -- Ou o nome certo
+        if specificRemote and specificRemote:IsA("RemoteEvent") then -- Adicionado verificação de tipo
+            specificRemote:FireServer(spot)
+            log("Disparou RemoteEvent para interagir!")
+            return true
+        end
+    end
+
+    local clickDetector = spot:FindFirstChildOfClass("ClickDetector")
+    if clickDetector then
+        clickDetector:MouseClick()
+        log("Clicou no ClickDetector!")
+        return true
+    end
+
+    local prompt = spot:FindFirstChildOfClass("ProximityPrompt")
+    if prompt and prompt.Enabled and prompt.HoldDuration == 0 then
+        prompt:InputHoldEnd()
+        log("Interagiu com ProximityPrompt!")
+        return true
+    end
+
+    log("Falha ao encontrar método de interação conhecido.")
+    notify("Pesca", "Não foi possível interagir com o local de pesca.", 3)
+    return false
+end
+
+local function autoFishLoopHandler()
+    while settings.autoFishEnabled do
+        local currentTime = os.time()
+        if currentTime - lastFishAttemptTime < settings.fishInterval then
+            task.wait(settings.fishInterval - (currentTime - lastFishAttemptTime))
+            continue
+        end
+
+        if not LocalPlayer.Character or not LocalPlayer.Character.HumanoidRootPart or LocalPlayer.Character.Humanoid.Health <= 0 then
+            log("Personagem não disponível para pescar.")
+            notify("Erro", "Personagem não disponível para pescar.", 3)
+            task.wait(5)
+            continue
+        end
+
+        local fishSpot = findNearestFishSpot()
+        if fishSpot then
+            currentFishingSpot = fishSpot
+            log("Local de pesca encontrado: " .. fishSpot.Name)
+
+            if settings.teleportToSpot then
+                local targetPosition = fishSpot.PrimaryPart.Position + Vector3.new(0, 5, 0)
+                LocalPlayer.Character.HumanoidRootPart.CFrame = CFrame.new(targetPosition)
+                log("Teleportado para perto do local de pesca.")
+                notify("Teleporte", "Movido para o local de pesca.", 1)
+            end
+
+            if settings.autoEquipRodEnabled and not LocalPlayer.Character:FindFirstChildOfClass("Tool") then
+                if not equipBestFishingRod() then
+                    log("Não foi possível equipar vara de pesca. Tentando novamente em 5s.")
+                    notify("Erro", "Não foi possível equipar vara de pesca.", 3)
+                    task.wait(5)
+                    continue
+                end
+            end
+
+            interactWithFishSpot(fishSpot)
+            lastFishAttemptTime = currentTime
+        else
+            log("Nenhum local de pesca ativo encontrado. Tentando novamente em " .. settings.fishInterval .. "s.")
+            notify("Pesca", "Nenhum local de pesca encontrado.", 2)
+        end
+        task.wait(settings.fishInterval)
+    end
+    log("Loop de pesca automática parado.")
+    notify("Pesca", "Pesca automática desativada.", 2)
+end
+
+-- =========================================================================
+--                             GERENCIAMENTO DE FERRAMENTAS (SEM MUDANÇAS AQUI)
+-- =========================================================================
+
+local function equipBestFishingRod()
+    local backpack = LocalPlayer.Backpack
+    local character = LocalPlayer.Character
+
+    if not backpack or not character then return false end
+
+    local bestRod = nil
+    local bestRodName = ""
+
+    for _, tool in ipairs(backpack:GetChildren()) do
+        if tool:IsA("Tool") and string.find(tool.Name:lower(), "rod") then
+            if not bestRod or (string.find(tool.Name:lower(), "gold") and not string.find(bestRodName:lower(), "gold")) then
+                bestRod = tool
+                bestRodName = tool.Name
+            elseif (string.find(tool.Name:lower(), "silver") and not string.find(bestRodName:lower(), "gold") and not string.find(bestRodName:lower(), "silver")) then
+                bestRod = tool
+                bestRodName = tool.Name
+            end
+        end
+    end
+
+    if bestRod then
+        local currentTool = character:FindFirstChildOfClass("Tool")
+        if currentTool and currentTool ~= bestRod then
+            currentTool.Parent = backpack
+            task.wait(0.1)
+        end
+
+        bestRod.Parent = character
+        log("Equipou: " .. bestRod.Name)
+        notify("Equipamento", "Vara de pesca equipada: " .. bestRod.Name, 2)
+        return true
+    else
+        log("Nenhuma vara de pesca encontrada no inventário.")
+        notify("Equipamento", "Nenhuma vara de pesca encontrada.", 3)
+    end
+    return false
+end
+
+local function startAutoToolClick()
+    if toolLoopConnection then
+        toolLoopConnection:Disconnect()
+        toolLoopConnection = nil
+    end
+
+    toolLoopConnection = RunService.RenderStepped:Connect(function()
+        if settings.autoToolClickEnabled and LocalPlayer.Character then
+            local tool = LocalPlayer.Character:FindFirstChildOfClass("Tool")
+            if tool and string.find(tool.Name:lower(), "rod") then
+                tool:Activate()
+            end
+        end
+    end)
+    log("Auto-click da ferramenta iniciado.")
+    notify("Ferramenta", "Auto-Click da vara ativado.", 2)
+    -- Atualiza a GUI
+    if guiElements.AutoToolClickToggle then guiElements.AutoToolClickToggle.Text = "Auto-Click Vara: ON" end
+end
+
+local function stopAutoToolClick()
+    if toolLoopConnection then
+        toolLoopConnection:Disconnect()
+        toolLoopConnection = nil
+    end
+    log("Auto-click da ferramenta parado.")
+    notify("Ferramenta", "Auto-Click da vara desativado.", 2)
+    -- Atualiza a GUI
+    if guiElements.AutoToolClickToggle then guiElements.AutoToolClickToggle.Text = "Auto-Click Vara: OFF" end
+end
+
+-- =========================================================================
+--                                OUTRAS OPÇÕES (SEM MUDANÇAS AQUI)
+-- =========================================================================
+
+local function antiAFKLoop()
+    while settings.antiAFKEnabled do
+        if LocalPlayer.Character and LocalPlayer.Character.Humanoid and LocalPlayer.Character.Humanoid.Health > 0 then
+            local now = os.time()
+            if now - lastAFKMove > 10 then
+                LocalPlayer.Character.Humanoid:Move(Vector3.new(0,0.1,0), true)
+                task.wait(0.1)
+                LocalPlayer.Character.Humanoid:Move(Vector3.new(0,-0.1,0), true)
+                lastAFKMove = now
+                log("Anti-AFK ativado: Pequeno movimento.")
+            end
+        end
+        task.wait(1)
+    end
+    log("Anti-AFK parado.")
+end
+
+local function autoSellFishLoop()
+    while settings.autoSellFishEnabled do
+        notify("Venda", "Funcionalidade Auto-Sell precisa de customização específica do jogo.", 3)
+        task.wait(30)
+    end
+    log("Auto-Sell parado.")
+end
+
+-- =========================================================================
+--                                INTERFACE (GUI PARA MOBILE)
+-- =========================================================================
+
+local screenGui = nil
+local frame = nil
+
+local function createMenuGUI()
+    if screenGui and screenGui.Parent then return end -- Já existe
+
+    screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "FischScriptGUI"
+    screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+    -- Main Frame
+    frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0.3, 0, 0.7, 0) -- Tamanho relativo para mobile
+    frame.Position = UDim2.new(0.68, 0, 0.15, 0) -- Posição no canto direito da tela
+    frame.AnchorPoint = Vector2.new(0.5, 0.5)
+    frame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+    frame.BorderSizePixel = 0
+    frame.Active = true
+    frame.Draggable = true -- Permite arrastar o menu
+    frame.Visible = false -- Começa invisível
+    frame.Parent = screenGui
+
+    -- Adiciona UICorner para cantos arredondados
+    local uiCorner = Instance.new("UICorner")
+    uiCorner.CornerRadius = UDim.new(0, 8)
+    uiCorner.Parent = frame
+
+    -- Adiciona UIListLayout para organizar os botões verticalmente
+    local listLayout = Instance.new("UIListLayout")
+    listLayout.FillDirection = Enum.FillDirection.Vertical
+    listLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    listLayout.VerticalAlignment = Enum.VerticalAlignment.Top
+    listLayout.Padding = UDim.new(0, 5)
+    listLayout.Parent = frame
+    listLayout.SortOrder = Enum.SortOrder.LayoutOrder -- Garante ordem dos elementos
+
+    -- Título
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, 0, 0.1, 0)
+    title.Text = "Fisch Script V3"
+    title.Font = Enum.Font.SourceSansBold
+    title.TextSize = 20
+    title.TextColor3 = Color3.fromRGB(255, 255, 255)
+    title.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+    title.BorderSizePixel = 0
+    title.LayoutOrder = 1
+    title.Parent = frame
+
+    -- Função para criar botões toggle
+    local function createToggleButton(text, settingName, layoutOrder, onToggleCallback)
+        local button = Instance.new("TextButton")
+        button.Size = UDim2.new(0.9, 0, 0.08, 0)
+        button.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+        button.TextColor3 = Color3.fromRGB(255, 255, 255)
+        button.TextScaled = true
+        button.Font = Enum.Font.SourceSansSemibold
+        button.LayoutOrder = layoutOrder
+        button.Parent = frame
+
+        local uiCornerButton = Instance.new("UICorner")
+        uiCornerButton.CornerRadius = UDim.new(0, 5)
+        uiCornerButton.Parent = button
+
+        local function updateButtonText()
+            button.Text = text .. ": " .. (settings[settingName] and "ON" or "OFF")
+            button.BackgroundColor3 = settings[settingName] and Color3.fromRGB(0, 150, 0) or Color3.fromRGB(80, 80, 80)
+        end
+
+        button.MouseButton1Click:Connect(function()
+            settings[settingName] = not settings[settingName]
+            updateButtonText()
+            if onToggleCallback then onToggleCallback(settings[settingName]) end
+            notify("Config", text .. (settings[settingName] and " Ativado." or " Desativado."), 1)
+        end)
+
+        updateButtonText()
+        guiElements[settingName .. "Toggle"] = button -- Guarda referência
+        return button
+    end
+
+    -- Criar botões toggle para as configurações
+    createToggleButton("Auto-Fish", "autoFishEnabled", 2, function(state)
+        if state then
+            autoFishThread = task.spawn(autoFishLoopHandler)
+        else
+            if autoFishThread then task.cancel(autoFishThread) end
+        end
+    end)
+    createToggleButton("Teleporte para Local", "teleportToSpot", 3)
+    createToggleButton("Auto-Click Vara", "autoToolClickEnabled", 4, function(state)
+        if state then startAutoToolClick() else stopAutoToolClick() end
+    end)
+    createToggleButton("Auto-Equip Vara", "autoEquipRodEnabled", 5)
+    createToggleButton("Auto-Vender Peixe", "autoSellFishEnabled", 6, function(state)
+        if state then task.spawn(autoSellFishLoop) end
+    end)
+    createToggleButton("Anti-AFK", "antiAFKEnabled", 7, function(state)
+        if state then
+            antiAFKThread = task.spawn(antiAFKLoop)
+        else
+            if antiAFKThread then task.cancel(antiAFKThread) end
+        end
+    end)
+    createToggleButton("Modo Debug", "debugMode", 8)
+
+    -- Slider/Input para Fish Interval (melhor que botões de seta para mobile)
+    local intervalFrame = Instance.new("Frame")
+    intervalFrame.Size = UDim2.new(0.9, 0, 0.1, 0)
+    intervalFrame.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+    intervalFrame.BorderSizePixel = 0
+    intervalFrame.LayoutOrder = 9
+    intervalFrame.Parent = frame
+
+    local uiCornerInterval = Instance.new("UICorner")
+    uiCornerInterval.CornerRadius = UDim.new(0, 5)
+    uiCornerInterval.Parent = intervalFrame
+
+    local intervalLabel = Instance.new("TextLabel")
+    intervalLabel.Size = UDim2.new(0.5, 0, 1, 0)
+    intervalLabel.Position = UDim2.new(0, 0, 0, 0)
+    intervalLabel.Text = "Intervalo: " .. string.format("%.1f", settings.fishInterval) .. "s"
+    intervalLabel.Font = Enum.Font.SourceSansSemibold
+    intervalLabel.TextSize = 14
+    intervalLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    intervalLabel.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+    intervalLabel.BorderSizePixel = 0
+    intervalLabel.TextXAlignment = Enum.TextXAlignment.Left
+    intervalLabel.TextWrapped = true
+    intervalLabel.Parent = intervalFrame
+    guiElements.IntervalLabel = intervalLabel
+
+    local intervalTextBox = Instance.new("TextBox")
+    intervalTextBox.Size = UDim2.new(0.45, 0, 0.8, 0)
+    intervalTextBox.Position = UDim2.new(0.52, 0, 0.1, 0)
+    intervalTextBox.PlaceholderText = "Segundos"
+    intervalTextBox.Text = string.format("%.1f", settings.fishInterval)
+    intervalTextBox.TextSize = 14
+    intervalTextBox.Font = Enum.Font.SourceSans
+    intervalTextBox.BackgroundColor3 = Color3.fromRGB(90, 90, 90)
+    intervalTextBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+    intervalTextBox.ClearTextOnFocus = true
+    intervalTextBox.TextXAlignment = Enum.TextXAlignment.Right
+    intervalTextBox.Parent = intervalFrame
+
+    intervalTextBox.FocusLost:Connect(function(enterPressed)
+        local newInterval = tonumber(intervalTextBox.Text)
+        if newInterval and newInterval >= 0.1 then
+            settings.fishInterval = newInterval
+            intervalLabel.Text = "Intervalo: " .. string.format("%.1f", settings.fishInterval) .. "s"
+            notify("Intervalo", "Intervalo de pesca definido para: " .. newInterval .. "s", 1)
+        else
+            notify("Erro", "Intervalo inválido. Use um número >= 0.1.", 2)
+            intervalTextBox.Text = string.format("%.1f", settings.fishInterval) -- Volta para o valor anterior
+        end
+    end)
+
+    -- Botão para fechar/abrir o menu
+    local toggleButton = Instance.new("TextButton")
+    toggleButton.Size = UDim2.new(0, 50, 0, 50) -- Tamanho fixo para ser um botão pequeno no canto
+    toggleButton.Position = UDim2.new(1, -60, 0, 10) -- Canto superior direito
+    toggleButton.BackgroundColor3 = Color3.fromRGB(0, 100, 200)
+    toggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    toggleButton.Text = "☰" -- Ícone de menu
+    toggleButton.Font = Enum.Font.SourceSansBold
+    toggleButton.TextSize = 24
+    toggleButton.BorderSizePixel = 0
+    toggleButton.Parent = screenGui -- Parent é o ScreenGui para ficar sempre visível
+
+    local uiCornerToggle = Instance.new("UICorner")
+    uiCornerToggle.CornerRadius = UDim.new(0, 8)
+    uiCornerToggle.Parent = toggleButton
+
+    toggleButton.MouseButton1Click:Connect(function()
+        frame.Visible = not frame.Visible
+        toggleButton.Text = frame.Visible and "✕" or "☰" -- Muda o ícone
+    end)
+    guiElements.MenuToggleButton = toggleButton
+end
+
+-- =========================================================================
+--                                INICIALIZAÇÃO E HOTKEYS (ADAPTADAS)
+-- =========================================================================
+
+-- Desconecta as hotkeys de teclado que não são ideais para mobile.
+-- O ideal é que o executor não injete eventos de teclado se estiver em mobile,
+-- mas é bom garantir.
+if UserInputService then
+    UserInputService.InputBegan:Connect(function(input, gameProcessedEvent)
+        -- IGNORAR hotkeys de teclado para o menu e ajuste de intervalo
+        -- Isso garante que as teclas M, Seta Cima/Baixo não façam nada se o menu GUI estiver ativo
+        if input.UserInputType == Enum.UserInputType.Keyboard then
+            if input.KeyCode == Enum.KeyCode.M or input.KeyCode == Enum.KeyCode.Up or input.KeyCode == Enum.KeyCode.Down then
+                -- Se o menu estiver visível ou tentando aparecer, consuma o evento
+                if frame and frame.Visible then
+                    gameProcessedEvent = true -- Evita que o Roblox processe (por exemplo, movimento da câmera)
+                end
+                return -- Não faça nada com essas hotkeys
+            end
+        end
+    end)
+end
+
+
+-- Função de inicialização
+local function initializeScript()
+    log("Fisch Script V3 - Inicializado. Criando GUI para mobile.")
+    notify("Fisch Script", "Toque no ícone de menu (☰) para abrir as opções.", 5)
+
+    createMenuGUI() -- Cria a GUI
+
+    -- Inicia threads que podem estar ativas por padrão
+    if settings.autoFishEnabled then autoFishThread = task.spawn(autoFishLoopHandler) end
+    if settings.autoToolClickEnabled then startAutoToolClick() end
+    if settings.autoSellFishEnabled then task.spawn(autoSellFishLoop) end
+    if settings.antiAFKEnabled then antiAFKThread = task.spawn(antiAFKLoop) end
+end
+
+-- =========================================================================
+--                           EXECUÇÃO (CHAMADA PRINCIPAL)
+-- =========================================================================
+-- Certifique-se de que o LocalPlayer está disponível antes de inicializar a GUI
+if LocalPlayer then
+    initializeScript()
+else
+    Players.PlayerAdded:Connect(function(player)
+        if player == Players.LocalPlayer then
+            initializeScript()
+        end
+    end)
+end
