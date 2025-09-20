@@ -1,0 +1,433 @@
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+local StarterGui = game:GetService("StarterGui") -- Para notificações do sistema
+local RunService = game:GetService("RunService")
+local Debris = game:GetService("Debris")
+
+-- =========================================================================
+--                                 CONFIGURAÇÕES
+-- =========================================================================
+local settings = {
+    autoFishEnabled = false,
+    teleportToSpot = true,
+    autoToolClickEnabled = false, -- Se precisar clicar na vara para pescar
+    fishInterval = 1,             -- Tempo entre as tentativas de pesca (em segundos)
+    autoEquipRodEnabled = false,
+    autoSellFishEnabled = false,  -- Requer conhecimento de como vender no jogo
+    antiAFKEnabled = false,
+    debugMode = true,             -- Exibe mensagens de debug
+    notificationDelay = 5,        -- Tempo que a notificação fica na tela
+}
+
+-- =========================================================================
+--                             VARIÁVEIS INTERNAS
+-- =========================================================================
+local currentFishingSpot = nil
+local lastFishAttemptTime = 0
+local toolLoopConnection = nil
+local autoFishThread = nil
+local antiAFKThread = nil
+local lastAFKMove = 0
+
+-- =========================================================================
+--                                 HELPERS
+-- =========================================================================
+local function log(message)
+    if settings.debugMode then
+        print("[Fisch Script] " .. message)
+    end
+end
+
+local function notify(title, message, duration)
+    -- Simula uma notificação no canto superior direito
+    -- Em um executor com GUI, você usaria as APIs de desenho aqui.
+    -- Aqui, usamos StarterGui para uma notificação de sistema do Roblox (se o executor permitir).
+    StarterGui:SetCore("SendNotification", {
+        Title = title,
+        Text = message,
+        Duration = duration or settings.notificationDelay,
+    })
+    log("[NOTIFICAÇÃO] " .. title .. ": " .. message)
+end
+
+-- =========================================================================
+--                             FUNCIONALIDADES DE PESCA
+-- =========================================================================
+
+-- Encontra o local de pesca mais próximo
+local function findNearestFishSpot()
+    local smallestDistance = math.huge
+    local nearestSpot = nil
+
+    for i, v in pairs(Workspace:GetChildren()) do
+        if v.Name == "FishingSpot" and v:IsA("Model") and v.PrimaryPart then
+            local distance = (LocalPlayer.Character.HumanoidRootPart.Position - v.PrimaryPart.Position).magnitude
+            if distance < smallestDistance then
+                smallestDistance = distance
+                nearestSpot = v
+            end
+        end
+    end
+    return nearestSpot
+end
+
+-- Tenta interagir com o local de pesca
+local function interactWithFishSpot(spot)
+    log("Tentando interagir com o local de pesca: " .. spot.Name)
+    notify("Pesca", "Interagindo com o local de pesca...", 2)
+
+    -- ESTA PARTE É ESPECÍFICA DO JOGO E REQUER ENGENHARIA REVERSA.
+    -- EXEMPLOS (você precisará descomentar e adaptar o que funcionar):
+    -- 1. Disparar um RemoteEvent (mais comum):
+    --    local interactRemote = ReplicatedStorage:WaitForChild("RemoteEvents", 5)
+    --    if interactRemote then
+    --        local specificRemote = interactRemote:FindFirstChild("InteractFishingSpot") -- Ou o nome certo
+    --        if specificRemote then
+    --            specificRemote:FireServer(spot)
+    --            log("Disparou RemoteEvent para interagir!")
+    --            return true
+    --        end
+    --    end
+    -- 2. Chamar uma função no ClickDetector:
+    --    local clickDetector = spot:FindFirstChildOfClass("ClickDetector")
+    --    if clickDetector then
+    --        clickDetector:MouseClick()
+    --        log("Clicou no ClickDetector!")
+    --        return true
+    --    end
+    -- 3. Interagir com ProximityPrompt:
+    --    local prompt = spot:FindFirstChildOfClass("ProximityPrompt")
+    --    if prompt and prompt.Enabled and prompt.HoldDuration == 0 then
+    --        prompt:InputHoldEnd()
+    --        log("Interagiu com ProximityPrompt!")
+    --        return true
+    --    end
+
+    log("Falha ao encontrar método de interação conhecido.")
+    notify("Pesca", "Não foi possível interagir com o local de pesca.", 3)
+    return false
+end
+
+-- Função principal de pesca automática
+local function autoFishLoopHandler()
+    while settings.autoFishEnabled do
+        local currentTime = os.time()
+        if currentTime - lastFishAttemptTime < settings.fishInterval then
+            task.wait(settings.fishInterval - (currentTime - lastFishAttemptTime))
+            continue
+        end
+
+        if not LocalPlayer.Character or not LocalPlayer.Character.HumanoidRootPart or LocalPlayer.Character.Humanoid.Health <= 0 then
+            log("Personagem não disponível para pescar.")
+            notify("Erro", "Personagem não disponível para pescar.", 3)
+            task.wait(5)
+            continue
+        end
+
+        local fishSpot = findNearestFishSpot()
+        if fishSpot then
+            currentFishingSpot = fishSpot
+            log("Local de pesca encontrado: " .. fishSpot.Name)
+
+            if settings.teleportToSpot then
+                local targetPosition = fishSpot.PrimaryPart.Position + Vector3.new(0, 5, 0)
+                LocalPlayer.Character.HumanoidRootPart.CFrame = CFrame.new(targetPosition)
+                log("Teleportado para perto do local de pesca.")
+                notify("Teleporte", "Movido para o local de pesca.", 1)
+            end
+
+            -- Equipa a vara de pesca antes de interagir, se ativado
+            if settings.autoEquipRodEnabled and not LocalPlayer.Character:FindFirstChildOfClass("Tool") then
+                if not equipBestFishingRod() then
+                    log("Não foi possível equipar vara de pesca. Tentando novamente em 5s.")
+                    notify("Erro", "Não foi possível equipar vara de pesca.", 3)
+                    task.wait(5)
+                    continue
+                end
+            end
+
+            interactWithFishSpot(fishSpot)
+            lastFishAttemptTime = currentTime
+        else
+            log("Nenhum local de pesca ativo encontrado. Tentando novamente em " .. settings.fishInterval .. "s.")
+            notify("Pesca", "Nenhum local de pesca encontrado.", 2)
+        end
+        task.wait(settings.fishInterval)
+    end
+    log("Loop de pesca automática parado.")
+    notify("Pesca", "Pesca automática desativada.", 2)
+end
+
+-- =========================================================================
+--                             GERENCIAMENTO DE FERRAMENTAS
+-- =========================================================================
+
+-- Tenta equipar a melhor vara de pesca (baseado no nome, você pode adaptar para stats)
+local function equipBestFishingRod()
+    local backpack = LocalPlayer.Backpack
+    local character = LocalPlayer.Character
+
+    if not backpack or not character then return false end
+
+    local bestRod = nil
+    local bestRodName = "" -- Você pode querer ordenar por um stat se o jogo expor isso
+
+    -- Encontra a melhor vara no inventário
+    for _, tool in ipairs(backpack:GetChildren()) do
+        if tool:IsA("Tool") and string.find(tool.Name:lower(), "rod") then
+            -- Exemplo: priorizar "Gold Fishing Rod" > "Silver Fishing Rod"
+            if not bestRod or (string.find(tool.Name:lower(), "gold") and not string.find(bestRodName:lower(), "gold")) then
+                bestRod = tool
+                bestRodName = tool.Name
+            elseif (string.find(tool.Name:lower(), "silver") and not string.find(bestRodName:lower(), "gold") and not string.find(bestRodName:lower(), "silver")) then
+                bestRod = tool
+                bestRodName = tool.Name
+            end
+        end
+    end
+
+    if bestRod then
+        -- Desequipa a ferramenta atual se houver uma e não for a vara certa
+        local currentTool = character:FindFirstChildOfClass("Tool")
+        if currentTool and currentTool ~= bestRod then
+            currentTool.Parent = backpack -- Move para o inventário
+            task.wait(0.1) -- Pequena espera para o Roblox processar
+        end
+
+        -- Equipa a melhor vara
+        bestRod.Parent = character
+        log("Equipou: " .. bestRod.Name)
+        notify("Equipamento", "Vara de pesca equipada: " .. bestRod.Name, 2)
+        return true
+    else
+        log("Nenhuma vara de pesca encontrada no inventário.")
+        notify("Equipamento", "Nenhuma vara de pesca encontrada.", 3)
+    end
+    return false
+end
+
+-- Auto-click na ferramenta de pesca (se o jogo exigir)
+local function startAutoToolClick()
+    if toolLoopConnection then
+        toolLoopConnection:Disconnect()
+        toolLoopConnection = nil
+    end
+
+    toolLoopConnection = RunService.RenderStepped:Connect(function()
+        if settings.autoToolClickEnabled and LocalPlayer.Character then
+            local tool = LocalPlayer.Character:FindFirstChildOfClass("Tool")
+            if tool and string.find(tool.Name:lower(), "rod") then -- Verifica se é uma vara de pesca
+                tool:Activate()
+            end
+        end
+    end)
+    log("Auto-click da ferramenta iniciado.")
+    notify("Ferramenta", "Auto-Click da vara ativado.", 2)
+end
+
+local function stopAutoToolClick()
+    if toolLoopConnection then
+        toolLoopConnection:Disconnect()
+        toolLoopConnection = nil
+    end
+    log("Auto-click da ferramenta parado.")
+    notify("Ferramenta", "Auto-Click da vara desativado.", 2)
+end
+
+-- =========================================================================
+--                                OUTRAS OPÇÕES
+-- =========================================================================
+
+-- Anti-AFK
+local function antiAFKLoop()
+    while settings.antiAFKEnabled do
+        if LocalPlayer.Character and LocalPlayer.Character.Humanoid and LocalPlayer.Character.Humanoid.Health > 0 then
+            local now = os.time()
+            if now - lastAFKMove > 10 then -- A cada 10 segundos, move um pouco
+                LocalPlayer.Character.Humanoid:Move(Vector3.new(0,0.1,0), true) -- Pequeno movimento para cima
+                task.wait(0.1)
+                LocalPlayer.Character.Humanoid:Move(Vector3.new(0,-0.1,0), true) -- Volta para baixo
+                lastAFKMove = now
+                log("Anti-AFK ativado: Pequeno movimento.")
+            end
+        end
+        task.wait(1)
+    end
+    log("Anti-AFK parado.")
+end
+
+-- Auto-Sell Fish (requer customização severa para o jogo)
+local function autoSellFishLoop()
+    while settings.autoSellFishEnabled do
+        -- ISTO É ALTAMENTE ESPECÍFICO DO JOGO!
+        -- Você precisaria encontrar:
+        -- 1. O Local da loja de vendas (Sell Shop)
+        -- 2. O RemoteEvent que vende os peixes
+        -- 3. Como os peixes são representados no inventário ou mochila do jogador
+        -- 4. Quais argumentos o RemoteEvent espera
+
+        -- Exemplo HIPOÉTICO:
+        -- local sellShop = Workspace:FindFirstChild("SellShop") -- Nome do modelo da loja
+        -- if sellShop then
+        --     local sellRemote = ReplicatedStorage:WaitForChild("RemoteEvents"):FindFirstChild("SellAllFish") -- Nome do RemoteEvent
+        --     if sellRemote then
+        --         sellRemote:FireServer() -- Sem argumentos ou com IDs dos peixes
+        --         notify("Venda", "Peixes vendidos automaticamente!", 2)
+        --         log("Peixes vendidos.")
+        --     else
+        --         log("RemoteEvent 'SellAllFish' não encontrado.")
+        --     end
+        -- else
+        --     log("Loja de vendas 'SellShop' não encontrada.")
+        -- end
+        notify("Venda", "Funcionalidade Auto-Sell precisa de customização específica do jogo.", 3)
+        task.wait(30) -- Tenta vender a cada 30 segundos
+    end
+    log("Auto-Sell parado.")
+end
+
+-- =========================================================================
+--                                INTERFACE (CONSOLE SIMULADO)
+-- =========================================================================
+
+local function printMenu()
+    print("\n" .. string.rep("-", 50))
+    print("                 Fisch Script V3 - Menu              ")
+    print(string.rep("-", 50))
+    print(string.format(" [1] Auto-Fish:            [%s]", settings.autoFishEnabled and "ATIVO" or "INATIVO"))
+    print(string.format(" [2] Teleporte para Local: [%s]", settings.teleportToSpot and "ATIVO" or "INATIVO"))
+    print(string.format(" [3] Auto-Click Vara:      [%s]", settings.autoToolClickEnabled and "ATIVO" or "INATIVO"))
+    print(string.format(" [4] Auto-Equip Vara:      [%s]", settings.autoEquipRodEnabled and "ATIVO" or "INATIVO"))
+    print(string.format(" [5] Auto-Vender Peixe:    [%s]", settings.autoSellFishEnabled and "ATIVO" or "INATIVO"))
+    print(string.format(" [6] Anti-AFK:             [%s]", settings.antiAFKEnabled and "ATIVO" or "INATIVO"))
+    print(string.format(" [7] Intervalo de Pesca:   %d segundos", settings.fishInterval))
+    print(string.format(" [8] Modo Debug:           [%s]", settings.debugMode and "ATIVO" or "INATIVO"))
+    print(string.rep("-", 50))
+    print(" [Seta Cima/Baixo] - Ajustar Intervalo de Pesca")
+    print(" [0] - Sair do Menu")
+    print("--------------------------------------------------")
+    print("Por favor, digite o número da opção para alternar:")
+end
+
+local function handleConsoleInput()
+    printMenu()
+    while true do
+        local input = io.read() -- Lê input do usuário (executores podem ter suas próprias APIs de input)
+        if not input then break end -- Se o input for interrompido
+
+        local optionNum = tonumber(input)
+        if optionNum then
+            if optionNum == 1 then
+                settings.autoFishEnabled = not settings.autoFishEnabled
+                if settings.autoFishEnabled then
+                    autoFishThread = task.spawn(autoFishLoopHandler)
+                    notify("Auto-Fish", "Ativado.", 1)
+                else
+                    if autoFishThread then task.cancel(autoFishThread) end
+                    notify("Auto-Fish", "Desativado.", 1)
+                end
+            elseif optionNum == 2 then
+                settings.teleportToSpot = not settings.teleportToSpot
+                notify("Teleporte", (settings.teleportToSpot and "Ativado." or "Desativado."), 1)
+            elseif optionNum == 3 then
+                settings.autoToolClickEnabled = not settings.autoToolClickEnabled
+                if settings.autoToolClickEnabled then startAutoToolClick() else stopAutoToolClick() end
+            elseif optionNum == 4 then
+                settings.autoEquipRodEnabled = not settings.autoEquipRodEnabled
+                notify("Auto-Equip", (settings.autoEquipRodEnabled and "Ativado." or "Desativado."), 1)
+            elseif optionNum == 5 then
+                settings.autoSellFishEnabled = not settings.autoSellFishEnabled
+                if settings.autoSellFishEnabled then
+                    task.spawn(autoSellFishLoop)
+                    notify("Auto-Venda", "Ativado. Requer adaptação!", 2)
+                else
+                    notify("Auto-Venda", "Desativado.", 1)
+                end
+            elseif optionNum == 6 then
+                settings.antiAFKEnabled = not settings.antiAFKEnabled
+                if settings.antiAFKEnabled then
+                    antiAFKThread = task.spawn(antiAFKLoop)
+                    notify("Anti-AFK", "Ativado.", 1)
+                else
+                    if antiAFKThread then task.cancel(antiAFKThread) end
+                    notify("Anti-AFK", "Desativado.", 1)
+                end
+            elseif optionNum == 7 then
+                print("Digite o novo intervalo de pesca em segundos (ex: 1, 5):")
+                local newInterval = tonumber(io.read())
+                if newInterval and newInterval >= 0.1 then -- Minimo de 0.1s para não sobrecarregar
+                    settings.fishInterval = newInterval
+                    notify("Intervalo", "Intervalo de pesca definido para: " .. newInterval .. "s", 1)
+                else
+                    notify("Erro", "Intervalo inválido. Use um número >= 0.1.", 2)
+                end
+            elseif optionNum == 8 then
+                settings.debugMode = not settings.debugMode
+                notify("Debug Mode", (settings.debugMode and "Ativado." or "Desativado."), 1)
+            elseif optionNum == 0 then
+                notify("Menu", "Saindo do menu. Pressione [M] para abrir novamente.", 2)
+                break
+            else
+                notify("Erro", "Opção inválida. Tente novamente.", 2)
+            end
+            printMenu()
+        else
+            notify("Erro", "Input inválido. Por favor, digite um número.", 2)
+            printMenu()
+        end
+    end
+end
+
+-- =========================================================================
+--                                INICIALIZAÇÃO E HOTKEYS
+-- =========================================================================
+
+-- Hotkeys
+UserInputService.InputBegan:Connect(function(input, gameProcessedEvent)
+    if gameProcessedEvent then return end
+
+    if input.KeyCode == Enum.KeyCode.M then -- 'M' para abrir o menu
+        handleConsoleInput()
+    elseif input.KeyCode == Enum.KeyCode.Up then -- Seta para cima para aumentar intervalo
+        settings.fishInterval = math.max(0.1, settings.fishInterval + 0.1)
+        notify("Intervalo", "Intervalo: " .. string.format("%.1f", settings.fishInterval) .. "s", 1)
+    elseif input.KeyCode == Enum.KeyCode.Down then -- Seta para baixo para diminuir intervalo
+        settings.fishInterval = math.max(0.1, settings.fishInterval - 0.1)
+        notify("Intervalo", "Intervalo: " .. string.format("%.1f", settings.fishInterval) .. "s", 1)
+    end
+end)
+
+-- Função de inicialização
+local function initializeScript()
+    log("Fisch Script V3 - Inicializado. Pressione [M] para abrir o menu.")
+    notify("Fisch Script", "Pressione [M] para abrir o menu de opções.", 5)
+
+    -- Inicia threads que podem estar ativas por padrão
+    if settings.autoFishEnabled then autoFishThread = task.spawn(autoFishLoopHandler) end
+    if settings.autoToolClickEnabled then startAutoToolClick() end
+    if settings.autoSellFishEnabled then task.spawn(autoSellFishLoop) end
+    if settings.antiAFKEnabled then antiAFKThread = task.spawn(antiAFKLoop) end
+end
+
+-- =========================================================================
+--                           EXECUÇÃO (LOADSTRING)
+-- =========================================================================
+-- Para ser usado com um executor, o código acima deve ser colocado dentro
+-- de uma string e passado para loadstring.
+--
+-- Exemplo:
+-- local scriptCode = [[
+--    -- COLOQUE TODO O CÓDIGO DO SCRIPT ACIMA AQUI DENTRO DESSAS CHAVES
+-- ]]
+-- local func = loadstring(scriptCode)
+-- if func then
+--    func() -- Executa o script
+-- else
+--    warn("Falha ao carregar o script com loadstring.")
+-- end
+
+-- Para demonstração, chamamos diretamente a inicialização
+initializeScript()
